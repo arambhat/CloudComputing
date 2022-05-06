@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "name": "ashish_kumar_rambhatla",
+    "major": "computer_science",
+    "year": "graduate"
+    }, 
+  {
+    "id": 2,
+    "name": "chaitanya_prakash_poluri",
+    "major": "computer_science",
+    "year": "graduate"
+  },
+  {
+    "id": 3,
+    "name": "reethu_chowdary_vattikunta",
+    "major": "computer_science",
+    "year": "graduate"
+  }
+]
