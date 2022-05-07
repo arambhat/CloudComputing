@@ -81,6 +81,7 @@ COPY events ${EVENTS_DIR}
 COPY extracted_frames ${FRAMES_DIR}
 COPY models ${MODELS_DIR}
 COPY app.py ${FUNCTION_DIR}
+COPY custom_encoder.py ${FUNCTION_DIR}
 COPY build_custom_model.py ${FUNCTION_DIR}
 COPY eval_face_recognition.py ${FUNCTION_DIR}
 COPY run_prediction.sh ${FUNCTION_DIR}

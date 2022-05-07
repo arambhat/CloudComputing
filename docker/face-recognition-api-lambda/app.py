@@ -1,8 +1,8 @@
 import json
-import urllib.parse
 import boto3
-import torch
+import time
 import os
+from custom_encoder import CustomEncoder
 import subprocess
 
 # import cv2
@@ -15,6 +15,12 @@ AWS_REGION = 'us-east-1'
 OUPUT_TOPIC_ARN = 'arn:aws:sns:us-east-1:942600870808:g45-academic-records.fifo'
 MESSAGE_GROUP_ID = 'face-recognition-results'
 
+getMethod = 'GET'
+postMethod = 'POST'
+
+healthPath = '/health'
+recognitionPath = '/facerecogition'
+
 
 def parse_results(results):
     if not results:
@@ -26,25 +32,22 @@ def parse_results(results):
     return key, label
 
 
-def publish_message_to_pi(message):
-    sns = boto3.client("sns", region_name=AWS_REGION)
-    response = sns.publish(
-        TopicArn=OUPUT_TOPIC_ARN,
-        # TargetArn='',
-        Message=message,
-        MessageGroupId=MESSAGE_GROUP_ID
-    )
+def buildResponse(statusCode, body=None):
+    response = {
+        'statusCode': statusCode,
+        'headers': {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+        }
+    }
+    if body is not None:
+        response['body'] = json.dumps(body, cls=CustomEncoder)
     return response
 
 
-def lambda_handler(event, context):
+def runFaceRecognition(bucket, image_name):
     s3 = boto3.client('s3', region_name=AWS_REGION)
-    # print("Received event: " + json.dumps(event, indent=2))
-
-    # Get the object from the event and show its content type
-    bucket = event['Records'][0]['s3']['bucket']['name']
-    # print(bucket)
-    key = urllib.parse.unquote_plus(event['Records'][0]['s3']['object']['key'], encoding='utf-8')
+    key = image_name
     try:
         frame_download_path = "/tmp"
         frame_path = os.path.join(frame_download_path, '{}'.format(key))
@@ -57,36 +60,36 @@ def lambda_handler(event, context):
         result = []
         print("-----results-------")
         try:
+            start = time.time()
             result = subprocess.run(['/bin/sh', 'run_prediction.sh', frame_path], capture_output=True, check=True). \
                 stdout.decode().strip()
-            # print("ashish results: " + str(result))
-            print("subprocess run successfully")
+            end = time.time()
+            eval_run_time = end - start
+            print(f"subprocess run successfully with run time of: {eval_run_time:.2f}s")
         except subprocess.CalledProcessError as e:
             print("Subprocess failed : " + str(e.output))
         _, label = parse_results(result)
-        # print(dictResult)
-        # print(label)
         # Fetching the database based on results.
         dynamodb = boto3.client('dynamodb', region_name=AWS_REGION)
         table_name = "g45-records-table"
         table_key = {
             'Name': {'S': str(label)}
         }
-        response = dynamodb.get_item(TableName=table_name, Key=table_key)
+        db_response = dynamodb.get_item(TableName=table_name, Key=table_key)
         # print(response)
-        id_student = response['Item']['Id']['S']
-        Year = response['Item']['Year']['S']
-        Major = response['Item']['Major']['S']
+        id_student = db_response['Item']['Id']['S']
+        Year = db_response['Item']['Year']['S']
+        Major = db_response['Item']['Major']['S']
         result = "Id: " + str(id_student) + " Name: " + str(label) + " Major: " + str(Major) + " Year: " + str(Year)
-        message = json.dumps({"key" : key, "message": str(result)})
-        print("Message : " + str(message))
-        publish_message_to_pi(str(message))
+        body = {"key": key, "response": str(result)}
+        pi_response = buildResponse(200, body)
+        print("Message : " + str(pi_response))
         try:
             os.remove(frame_path)
         except OSError as e:
             print("File Remove error: {} - {}".format(e.filename, e.strerror))
         # print("CONTENT TYPE: " + response['ContentType'] + " ashish")
-        return label
+        return pi_response
     except Exception as e:
         print(e)
         print(
@@ -94,6 +97,21 @@ def lambda_handler(event, context):
             'this function.'.format(
                 key, bucket))
         raise e
+
+
+def lambda_handler(event, context):
+    print(json.dumps(event, indent=2))
+    httpMethod = event['httpMethod']
+    path = event['path']
+    if httpMethod == getMethod and path == healthPath:
+        response = buildResponse(200)
+    elif httpMethod == getMethod and path == recognitionPath:
+        bucket_name = event['queryStringParameters']['BucketName']
+        image_name = event['queryStringParameters']['ImageName']
+        response = runFaceRecognition(bucket_name, image_name)
+    else:
+        response = buildResponse(404, 'Request Not Found!!')
+    return response
 
 
 if __name__ == "__main__":
